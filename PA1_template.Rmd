@@ -5,21 +5,132 @@ output:
     keep_md: true
 ---
 
+First load the plyr package for data manipulation and ggplot2 for panel plotting.
+
+```{r, echo=TRUE}
+library(plyr)
+library(ggplot2)
+```
 
 ## Loading and preprocessing the data
 
+Then unzip and load the activity data.
 
+```{r, echo=TRUE}
+if (!file.exists('activity.csv')) { unzip('activity.zip'); print("apa") }
+activity <- read.csv('activity.csv', header = T, col.names = c("Steps", "Date", "Interval"))
+```
+
+Finally convert date string to dates.
+
+```{r, echo=TRUE}
+activity$Date <- as.Date(activity$Date)
+```
+
+Here's a summaty of the resulting data frame.
+
+```{r, echo=TRUE}
+str(activity)
+summary(activity)
+```
 
 ## What is mean total number of steps taken per day?
 
+We can group activity by date and make a histogram of the total number of steps taken each day.
 
+```{r, echo=TRUE}
+activity.by.day <- ddply(activity, "Date", summarise, Total.Steps = sum(Steps))
+steps.histogram <- with(activity.by.day, hist(Total.Steps))
+```
+
+The mean and median of the total number of steps taken per day (ignoring missing values) is calculated from `activity.by.day`.
+
+```{r, echo=TRUE}
+mean.steps <- mean(activity.by.day$Total.Steps, na.rm = T)
+median.steps <- median(activity.by.day$Total.Steps, na.rm = T)
+```
+
+The mean and median of the total number of steps is `r mean.steps` and `r median.steps`, respectively.
 
 ## What is the average daily activity pattern?
 
+We can also group activity by 5-minute interval and take the average number of steps across all days. We plot this as a time-series (type = "l").
 
+```{r, echo=TRUE}
+activity.by.interval <- ddply(activity, "Interval", summarise, Mean.Steps = mean(Steps, na.rm = T))
+plot(activity.by.interval, type = "l", xlab = "5-min interval")
+```
+
+There is a peak in the morning.
+
+```{r, echo=TRUE}
+peak.time <- with(activity.by.interval, Interval[which.max(Mean.Steps)])
+```
+
+In particular, the 5-minute interval starting at `r peak.time` contains the maximum number of steps (on average across all the days in the dataset).
 
 ## Imputing missing values
 
+Note that there are a number of days/intervals where there are missing values (coded as NA). The presence of missing days may introduce bias into some calculations or summaries of the data. The total number of rows with at least one NAs is computed by `complete.cases` as follows.
 
+```{r, echo=TRUE}
+sum(!complete.cases(activity))
+```
+
+This could also be seen above, in the output of `summary(activity)`.
+
+```{r, echo=TRUE}
+tail(summary(activity), 1)
+```
+
+Our strategy will be to replace all missing values (Steps) in the dataset using the mean for the 5-minute interval over all days.
+
+We create a new data frame where we use the computed means for the 5-minute intervals over all days and replace the NAs in `activity` with these means.
+
+```{r, echo=TRUE}
+steps.or.mean.steps <- with(activity, replace(Steps, is.na(Steps), activity.by.interval$Mean.Steps))
+filled.activity <- with(activity, data.frame(Steps = steps.or.mean.steps, Date = Date, Interval = Interval))
+```
+
+We also need to consider the impact of the imputed values. We make a histogram of the total number of steps taken each day and calculate the mean and median of the total number of steps taken per day as above.
+
+```{r, echo=TRUE}
+filled.activity.by.day <- ddply(filled.activity, "Date", summarise, Total.Steps = sum(Steps))
+filled.steps.histogram <- with(filled.activity.by.day, hist(Total.Steps))
+filled.mean.steps <- mean(filled.activity.by.day$Total.Steps, na.rm = T)
+filled.median.steps <- median(filled.activity.by.day$Total.Steps, na.rm = T)
+```
+
+This histogram looks similar to the one above. Indeed, the bins are the same and the counts for all non-center bins are the same.
+
+```{r, echo=TRUE}
+all(steps.histogram$breaks == filled.steps.histogram$breaks)
+filled.steps.histogram$counts - steps.histogram$counts
+```
+
+We also compare the means.
+
+```{r, echo=TRUE}
+mean.steps - filled.mean.steps
+median.steps - filled.median.steps
+```
+
+The comparisson of the data frame with imputed missing values and the above data frame with missing values shows that:
+
+* The histogram gets more mass in the center (8 new observations).
+* Means DO NOT differ (by construction).
+* Medians are very close.
+
+In summary:
+
+    The impact of imputing missing data on the estimates of the total daily number of steps is that the distribution becomes more centered since the new values end up at the mean.
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+```{r, echo=TRUE}
+Sys.setlocale("LC_TIME", "en_US.UTF-8")
+weekday.type <- factor(weekdays(filled.activity$Date) %in% c("Saturday", "Sunday"), labels = c("weekday", "weekend"))
+activity.by.daytype <- with(filled.activity, data.frame(Steps = Steps, Weekend = weekday.type, Interval = Interval))
+weekend.activity <- ddply(activity.by.daytype, c("Weekend", "Interval"), summarise, Mean.Steps = mean(Steps))
+#qplot(Interval, Steps, facets = . ~ Weekend, data = weekend.activity)
+```
